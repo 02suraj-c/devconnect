@@ -1,6 +1,10 @@
 # DevConnect — Developer Networking Platform
 
-A full-stack social platform for developers: JWT auth, real-time chat via Socket.io, a post feed, and a searchable developer directory. Built with **React (Vite)**, **Node.js/Express**, **MongoDB (Mongoose)**, and **Socket.io** — deployable on **Vercel** (frontend) + **Render** (backend) with a GitHub Actions **CI/CD** pipeline.
+[![CI/CD](https://github.com/02suraj-c/devconnect/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/02suraj-c/devconnect/actions)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2F02suraj-c%2Fdevconnect&root-directory=frontend)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/02suraj-c/devconnect)
+
+A full-stack social platform for developers: JWT auth, real-time chat via Socket.io, a post feed, and a searchable developer directory. Built with **React (Vite)**, **Node.js/Express**, **MongoDB (Mongoose)**, and **Socket.io** — deployable in **one click** on **Vercel** (frontend) + **Render** (backend) with a GitHub Actions **CI/CD** pipeline.
 
 ---
 
