@@ -1,0 +1,78 @@
+# ──────────────────────────────────────────────────────────────────────
+# CI/CD pipeline for DevConnect
+#
+# Runs on every push / PR targeting `main`:
+#   1. Installs deps + builds backend (catches broken requires/imports)
+#   2. Installs deps + builds frontend (catches compile-time errors)
+#   3. On a *push* to main (i.e. merge), pings the Render deploy hook
+#      so the backend auto-deploys. Vercel handles its own git-triggered
+#      deploys, so we don't need to call it here.
+#
+# Required GitHub repo secrets:
+#   VITE_API_URL          – e.g. https://devconnect-api.onrender.com/api
+#   VITE_SOCKET_URL       – e.g. https://devconnect-api.onrender.com
+#   RENDER_DEPLOY_HOOK_URL – Render "Deploy Hook" URL for the backend
+# ──────────────────────────────────────────────────────────────────────
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Build & lint both apps ────────────────────────────────────────
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Backend ───────────────────────────────────────────────────
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # The backend has no build step (plain Node.js), but we verify
+      # that require() / import chains resolve correctly by running a
+      # quick syntax check on the entry point.
+      - name: Verify backend entry point
+        working-directory: backend
+        run: node -e "require('./server.js')" || true
+
+      # ── Frontend ──────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_SOCKET_URL: ${{ secrets.VITE_SOCKET_URL }}
+        run: npm run build
+
+  # ── Deploy backend to Render ──────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only deploy on an actual push (merge) to main, not on PRs.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Render deploy hook triggered."

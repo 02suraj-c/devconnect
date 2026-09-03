@@ -1,0 +1,23 @@
+{
+  "name": "devconnect-monorepo",
+  "version": "1.0.0",
+  "description": "DevConnect — Full-stack Developer Networking Platform",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "backend": "npm run dev --prefix backend",
+    "frontend": "npm run dev --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "seed": "npm run seed --prefix backend"
+  },
+  "keywords": [
+    "developer",
+    "social-network",
+    "react",
+    "nodejs",
+    "express",
+    "socketio",
+    "mongodb"
+  ],
+  "author": "02suraj-c",
+  "license": "MIT"
+}
