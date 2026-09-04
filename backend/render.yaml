@@ -16,7 +16,7 @@ services:
     # Render clones the whole repo; rootDir scopes it to the backend.
     rootDir: backend
 
-    buildCommand: npm install
+    buildCommand: npm install --include=dev
     startCommand: npm start
 
     # Render hits this path to decide if the deploy is healthy.
@@ -26,9 +26,10 @@ services:
       - key: NODE_ENV
         value: production
 
+      # Comma-separated frontend origins for CORS.
       # Update this to your real Vercel URL once you have it.
       - key: CLIENT_URL
-        value: https://devconnect.vercel.app
+        value: https://devconnect-n8x9p2niw-02suraj-cs-projects.vercel.app
 
       # Secrets — set the actual values in the Render dashboard.
       - key: MONGO_URI

@@ -34,11 +34,25 @@ const initSocket                 = require('./socket/socketHandler');
 const app    = express();
 const server = http.createServer(app);
 
+// ── Allowed origins (supports comma-separated CLIENT_URL) ─────────
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((s) => s.trim());
+
+function checkOrigin(origin, callback) {
+  // Allow requests with no origin (mobile apps, curl, server-to-server).
+  if (!origin || allowedOrigins.includes(origin)) {
+    callback(null, true);
+  } else {
+    callback(new Error('Not allowed by CORS'));
+  }
+}
+
 // ── Socket.io ──────────────────────────────────────────────────────
 // Attach to the same HTTP server so REST + WS share one port.
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: checkOrigin,
     methods: ['GET', 'POST'],
   },
 });
@@ -51,10 +65,10 @@ initSocket(io);
 // Security headers (XSS, clickjacking, MIME sniffing, etc.).
 app.use(helmet());
 
-// CORS — allow the frontend origin.
+// CORS — allow the frontend origin(s).
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: checkOrigin,
     credentials: true,
   })
 );
