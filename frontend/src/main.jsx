@@ -1,22 +1,14 @@
-/**
- * React Entry Point
- *
- * Renders the app into the DOM with:
- *   - BrowserRouter for client-side routing
- *   - AuthProvider wrapping the entire tree so every component can
- *     access the current user / login / logout actions via context
- */
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App.jsx";
+import { AuthProvider } from "./context/AuthContext.jsx";
+import "./styles/index.css";
 
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import App from './App';
-import './styles/index.css';
-
-ReactDOM.createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
+      {/* AuthProvider makes the logged-in user + token available everywhere */}
       <AuthProvider>
         <App />
       </AuthProvider>

@@ -1,130 +1,75 @@
-/**
- * Socket.io Handler
- *
- * Sets up real-time features: JWT auth at the handshake level,
- * presence tracking, and one-to-one chat with message persistence.
- *
- * Design decisions:
- *
- * 1. **Auth in `io.use()` (middleware) rather than per-event**:
- *    Verifying the JWT once at connection time means every subsequent
- *    event is already authenticated — no repeated token checks, no
- *    risk of a handler forgetting to verify. If the token is invalid
- *    the connection is rejected immediately and no events fire.
- *
- * 2. **Persist before emit**:
- *    Messages are saved to MongoDB *before* being emitted to the
- *    recipient. This guarantees data safety: even if the recipient's
- *    socket disconnects between the save and the emit, the message
- *    is never lost — they'll see it when they load chat history.
- *    The trade-off is ~5-20 ms extra latency for the sender, which
- *    is imperceptible in a chat UI.
- *
- * 3. **Online users Map**:
- *    A simple in-memory Map tracks { userId → socketId }. This works
- *    for a single-server deployment; for horizontal scaling you'd swap
- *    it for a Redis adapter (`@socket.io/redis-adapter`).
- */
+const jwt = require("jsonwebtoken");
+const Message = require("../models/Message");
+const User = require("../models/User");
 
-const jwt     = require('jsonwebtoken');
-const User    = require('../models/User');
-const Message = require('../models/Message');
-
-// Map<userId, socketId> — tracks who's currently connected.
+// Maps a userId -> socketId so we can push messages directly to a
+// specific connected user instead of broadcasting to everyone.
 const onlineUsers = new Map();
 
 /**
- * Initialise Socket.io on the given HTTP server instance.
- * Called once from server.js after the HTTP server is created.
+ * Wires up all Socket.io behaviour. Called once from server.js with the
+ * `io` instance created around the shared HTTP server.
  */
 function initSocket(io) {
-  // ── 1. Authentication middleware ─────────────────────────────────
-  // Runs once per connection attempt, before any event handlers fire.
-  io.use(async (socket, next) => {
+  // Auth middleware for the socket handshake: the client sends its JWT
+  // as `auth.token` when calling io(url, { auth: { token } }) on the client.
+  io.use((socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
-
-      if (!token) {
-        return next(new Error('Authentication error — no token'));
-      }
-
+      if (!token) return next(new Error("Authentication error: no token"));
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id).select('name avatar');
-
-      if (!user) {
-        return next(new Error('Authentication error — user not found'));
-      }
-
-      // Attach user info to the socket so event handlers can use it.
-      socket.userId   = user._id.toString();
-      socket.userName = user.name;
+      socket.userId = decoded.id;
       next();
     } catch (err) {
-      next(new Error('Authentication error — invalid token'));
+      next(new Error("Authentication error: invalid token"));
     }
   });
 
-  // ── 2. Connection handler ────────────────────────────────────────
-  io.on('connection', (socket) => {
-    const userId = socket.userId;
-
-    // Track this user as online.
+  io.on("connection", async (socket) => {
+    const { userId } = socket;
     onlineUsers.set(userId, socket.id);
+    console.log(`Socket connected: user ${userId} (${socket.id})`);
 
-    // Broadcast their online status to everyone.
-    io.emit('presence:update', { userId, isOnline: true });
+    // Mark the user online and let everyone know.
+    await User.findByIdAndUpdate(userId, { isOnline: true });
+    io.emit("presence:update", { userId, isOnline: true });
 
-    // Send the new client the full list of currently online users so
-    // the UI can show correct badges immediately (not just reactively).
-    socket.emit('presence:list', Array.from(onlineUsers.keys()));
+    // --- Real-time direct messaging -------------------------------------
+    socket.on("chat:send", async ({ receiverId, text }) => {
+      if (!text?.trim()) return;
 
-    console.log(`🟢  ${socket.userName} connected (${userId})`);
+      // Persist first so refreshing the page never loses a message.
+      const message = await Message.create({
+        sender: userId,
+        receiver: receiverId,
+        text: text.trim(),
+      });
 
-    // ── Chat: send a message ───────────────────────────────────────
-    socket.on('chat:send', async ({ receiverId, text }) => {
-      try {
-        if (!receiverId || !text?.trim()) return;
+      // Deliver to the receiver immediately if they're online.
+      const receiverSocketId = onlineUsers.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("chat:receive", message);
+      }
+      // Echo back to the sender so their own UI updates (multi-tab safe).
+      socket.emit("chat:sent", message);
+    });
 
-        // Persist first, emit second (see design note 2).
-        const message = await Message.create({
-          sender: userId,
-          receiver: receiverId,
-          text: text.trim(),
-        });
-
-        // Populate sender info so the frontend can render it directly.
-        await message.populate('sender', 'name avatar');
-        await message.populate('receiver', 'name avatar');
-
-        // Send to recipient if they're online.
-        const recipientSocketId = onlineUsers.get(receiverId);
-        if (recipientSocketId) {
-          io.to(recipientSocketId).emit('chat:receive', message);
-        }
-
-        // Echo back to sender so their UI updates immediately.
-        socket.emit('chat:sent', message);
-      } catch (err) {
-        console.error('chat:send error:', err.message);
-        socket.emit('chat:error', { message: 'Failed to send message' });
+    // --- Typing indicator -------------------------------------------------
+    socket.on("chat:typing", ({ receiverId }) => {
+      const receiverSocketId = onlineUsers.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("chat:typing", { senderId: userId });
       }
     });
 
-    // ── Chat: typing indicator ─────────────────────────────────────
-    socket.on('chat:typing', ({ receiverId }) => {
-      const recipientSocketId = onlineUsers.get(receiverId);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('chat:typing', { senderId: userId });
-      }
-    });
-
-    // ── Disconnect ─────────────────────────────────────────────────
-    socket.on('disconnect', () => {
+    // --- Disconnect ---------------------------------------------------
+    socket.on("disconnect", async () => {
       onlineUsers.delete(userId);
-      io.emit('presence:update', { userId, isOnline: false });
-      console.log(`🔴  ${socket.userName} disconnected (${userId})`);
+      await User.findByIdAndUpdate(userId, { isOnline: false });
+      io.emit("presence:update", { userId, isOnline: false });
+      console.log(`Socket disconnected: user ${userId}`);
     });
   });
 }
 
-module.exports = initSocket;
+module.exports = { initSocket };

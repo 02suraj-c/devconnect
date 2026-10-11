@@ -1,245 +1,130 @@
-/**
- * Feed Page
- *
- * The main landing page after login. Displays:
- *   - A post composer (text, optional code snippet, tags)
- *   - A paginated feed of posts rendered via PostCard
- *   - A "Load More" button for pagination
- */
-
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
-import PostCard from '../components/PostCard';
-import {
-  HiOutlinePaperAirplane,
-  HiOutlineCodeBracket,
-  HiOutlineTag,
-} from 'react-icons/hi2';
+import { useEffect, useState } from "react";
+import api from "../services/api";
+import PostCard from "../components/PostCard.jsx";
 
 export default function Feed() {
-  const { user } = useAuth();
-  const [posts, setPosts]       = useState([]);
-  const [page, setPage]         = useState(1);
-  const [totalPages, setTotal]  = useState(1);
-  const [loading, setLoading]   = useState(true);
-  const [posting, setPosting]   = useState(false);
+  const [posts, setPosts] = useState([]);
+  const [content, setContent] = useState("");
+  const [code, setCode] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [showCode, setShowCode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState("");
 
-  // Composer state
-  const [text, setText]             = useState('');
-  const [codeSnippet, setCode]      = useState('');
-  const [tagInput, setTagInput]     = useState('');
-  const [showCodeInput, setShowCode] = useState(false);
-
-  // ── Fetch posts ──────────────────────────────────────────────────
-  const fetchPosts = useCallback(async (pageNum = 1, append = false) => {
+  const loadFeed = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await api.get(`/posts?page=${pageNum}&limit=10`);
-      if (append) {
-        setPosts((prev) => [...prev, ...res.data.data]);
-      } else {
-        setPosts(res.data.data);
-      }
-      setTotal(res.data.totalPages);
-      setPage(pageNum);
+      const { data } = await api.get("/posts");
+      setPosts(data.posts);
     } catch (err) {
-      console.error('Failed to load posts:', err);
+      setError(err.response?.data?.message || "Could not load the feed");
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchPosts(1);
-  }, [fetchPosts]);
+    loadFeed();
+  }, []);
 
-  // ── Create a new post ────────────────────────────────────────────
-  const handleCreatePost = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!text.trim()) return;
-
+    if (!content.trim() || posting) return;
     setPosting(true);
+    setError("");
+
+    const tags = tagsInput
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 5);
+
     try {
-      // Split comma-separated tags into an array.
-      const tags = tagInput
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const payload = { content };
+      if (code.trim()) payload.codeSnippet = code;
+      if (tags.length) payload.tags = tags;
 
-      const res = await api.post('/posts', {
-        text: text.trim(),
-        codeSnippet: codeSnippet.trim(),
-        tags,
-      });
-
-      // Prepend the new post to the feed.
-      setPosts((prev) => [res.data.data, ...prev]);
-      setText('');
-      setCode('');
-      setTagInput('');
+      const { data } = await api.post("/posts", payload);
+      setPosts((prev) => [data.post, ...prev]);
+      setContent("");
+      setCode("");
+      setTagsInput("");
       setShowCode(false);
     } catch (err) {
-      console.error('Failed to create post:', err);
+      setError(err.response?.data?.message || "Could not create the post");
     } finally {
       setPosting(false);
     }
   };
 
-  // ── Like a post ──────────────────────────────────────────────────
-  const handleLike = async (postId) => {
-    try {
-      const res = await api.put(`/posts/${postId}/like`);
-      setPosts((prev) =>
-        prev.map((p) => (p._id === postId ? { ...p, likes: res.data.data } : p))
-      );
-    } catch (err) {
-      console.error('Failed to like post:', err);
-    }
+  const handleUpdate = (updatedPost) => {
+    setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
   };
 
-  // ── Comment on a post ────────────────────────────────────────────
-  const handleComment = async (postId, commentText) => {
-    try {
-      const res = await api.post(`/posts/${postId}/comments`, { text: commentText });
-      setPosts((prev) =>
-        prev.map((p) => (p._id === postId ? { ...p, comments: res.data.data } : p))
-      );
-    } catch (err) {
-      console.error('Failed to add comment:', err);
-    }
-  };
-
-  // ── Delete a post ────────────────────────────────────────────────
-  const handleDelete = async (postId) => {
-    if (!window.confirm('Delete this post?')) return;
-    try {
-      await api.delete(`/posts/${postId}`);
-      setPosts((prev) => prev.filter((p) => p._id !== postId));
-    } catch (err) {
-      console.error('Failed to delete post:', err);
-    }
-  };
-
-  // ── Load more ────────────────────────────────────────────────────
-  const handleLoadMore = () => {
-    if (page < totalPages) {
-      fetchPosts(page + 1, true);
-    }
+  const handleDelete = (id) => {
+    setPosts((prev) => prev.filter((p) => p._id !== id));
   };
 
   return (
-    <div className="feed-page page-container">
-      <div className="feed-content">
-        {/* ── Post Composer ──────────────────────────────────────── */}
-        <div className="glass-card composer-card" id="post-composer">
-          <div className="composer-header">
-            <img
-              src={user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}&background=3b82f6&color=fff&size=40`}
-              alt={user?.name}
-              className="composer-avatar"
-            />
-            <span className="composer-greeting">What&apos;s on your mind, {user?.name?.split(' ')[0]}?</span>
-          </div>
+    <div className="feed-page">
+      <form className="new-post-form" onSubmit={handleSubmit}>
+        <textarea
+          placeholder="Share something with other developers…"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+        />
 
-          <form onSubmit={handleCreatePost}>
-            <textarea
-              className="composer-textarea"
-              id="composer-text"
-              placeholder="Share something with the community…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={3}
-            />
+        {showCode && (
+          <textarea
+            className="code-input"
+            placeholder="Paste a code snippet (optional)"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            spellCheck={false}
+          />
+        )}
 
-            {/* Optional code snippet input */}
-            {showCodeInput && (
-              <textarea
-                className="composer-code"
-                id="composer-code"
-                placeholder="Paste your code snippet here…"
-                value={codeSnippet}
-                onChange={(e) => setCode(e.target.value)}
-                rows={5}
-              />
-            )}
+        <input
+          className="tags-input"
+          type="text"
+          placeholder="Tags, separated by commas (e.g. react, node, mongodb)"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+        />
 
-            {/* Tag input */}
-            <input
-              type="text"
-              className="composer-tags-input"
-              id="composer-tags"
-              placeholder="Tags (comma-separated, e.g. React, Node.js)"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-            />
+        {error && <p className="form-error">{error}</p>}
 
-            <div className="composer-footer">
-              <div className="composer-tools">
-                <button
-                  type="button"
-                  className={`composer-tool-btn ${showCodeInput ? 'active' : ''}`}
-                  onClick={() => setShowCode((prev) => !prev)}
-                  title="Add code snippet"
-                >
-                  <HiOutlineCodeBracket />
-                </button>
-                <button type="button" className="composer-tool-btn" title="Add tags">
-                  <HiOutlineTag />
-                </button>
-              </div>
+        <div className="new-post-actions">
+          <button
+            type="button"
+            className="toggle-code-btn"
+            onClick={() => setShowCode((prev) => !prev)}
+          >
+            {showCode ? "Hide code" : "Add code"}
+          </button>
 
-              <button
-                type="submit"
-                className="composer-submit"
-                id="composer-submit"
-                disabled={posting || !text.trim()}
-              >
-                {posting ? (
-                  <span className="btn-spinner" />
-                ) : (
-                  <>
-                    <HiOutlinePaperAirplane />
-                    <span>Post</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
+          <button type="submit" className="submit-post-btn" disabled={posting || !content.trim()}>
+            {posting ? "Posting..." : "Post"}
+          </button>
         </div>
+      </form>
 
-        {/* ── Post Feed ──────────────────────────────────────────── */}
-        <div className="feed-list">
-          {posts.map((post) => (
+      <div className="feed-list">
+        {loading ? (
+          <p>Loading posts...</p>
+        ) : posts.length === 0 ? (
+          <p>No posts yet.</p>
+        ) : (
+          posts.map((post) => (
             <PostCard
               key={post._id}
               post={post}
-              currentUserId={user?._id}
-              onLike={handleLike}
-              onComment={handleComment}
+              onUpdate={handleUpdate}
               onDelete={handleDelete}
             />
-          ))}
-
-          {loading && (
-            <div className="feed-loading">
-              <div className="spinner" />
-              <p>Loading posts…</p>
-            </div>
-          )}
-
-          {!loading && posts.length === 0 && (
-            <div className="feed-empty glass-card">
-              <p>No posts yet. Be the first to share something!</p>
-            </div>
-          )}
-
-          {!loading && page < totalPages && (
-            <button className="load-more-btn" onClick={handleLoadMore} id="load-more">
-              Load More
-            </button>
-          )}
-        </div>
+          ))
+        )}
       </div>
     </div>
   );

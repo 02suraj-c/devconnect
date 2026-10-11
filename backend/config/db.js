@@ -1,44 +1,16 @@
+const mongoose = require("mongoose");
+
 /**
- * MongoDB Connection
- *
- * Uses Mongoose to connect to MongoDB Atlas, a local MongoDB instance,
- * or an automatic in-memory MongoDB server (`mongodb-memory-server`)
- * when running in local development mode without external credentials.
- *
- * This ensures the application is 100% runnable out-of-the-box.
+ * Connects to MongoDB using the connection string in process.env.MONGO_URI.
+ * Called once from server.js on boot. If the connection fails we exit the
+ * process immediately — there is no point serving requests without a DB.
  */
-
-const mongoose = require('mongoose');
-
-let mongodInstance = null;
-
 const connectDB = async () => {
   try {
-    let mongoUri = process.env.MONGO_URI;
-
-    mongoUri = mongoUri ? mongoUri.trim().replace(/^["']|["']$/g, '') : '';
-
-    // Check if an in-memory database should be used
-    const shouldUseMemory =
-      !mongoUri ||
-      mongoUri.toLowerCase() === 'memory' ||
-      mongoUri.includes('<user>') ||
-      mongoUri.includes('cluster0.xxxxx') ||
-      (!mongoUri.startsWith('mongodb://') && !mongoUri.startsWith('mongodb+srv://'));
-
-    if (shouldUseMemory) {
-      console.log('🔄  Starting in-memory MongoDB server (mongodb-memory-server)…');
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      mongodInstance = await MongoMemoryServer.create();
-      mongoUri = mongodInstance.getUri();
-      console.log(`⚡  In-memory MongoDB started at: ${mongoUri}`);
-    }
-
-    const conn = await mongoose.connect(mongoUri);
-    console.log(`✅  MongoDB connected: ${conn.connection.host}`);
-    return conn;
-  } catch (err) {
-    console.error(`❌  MongoDB connection error: ${err.message}`);
+    const conn = await mongoose.connect(process.env.MONGO_URI);
+    console.log(`MongoDB connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error(`MongoDB connection error: ${error.message}`);
     process.exit(1);
   }
 };

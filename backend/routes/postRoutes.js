@@ -1,50 +1,38 @@
-/**
- * Post Routes
- *
- * All post endpoints require authentication (protect middleware applied
- * to the entire router). Validation is inline per route.
- */
-
-const express  = require('express');
-const { body } = require('express-validator');
-const validate = require('../middleware/validate');
-const protect  = require('../middleware/auth');
+const express = require("express");
+const { body } = require("express-validator");
 const {
-  getPosts,
+  getFeed,
   createPost,
   toggleLike,
   addComment,
   deletePost,
-} = require('../controllers/postController');
+} = require("../controllers/postController");
+const { protect } = require("../middleware/auth");
+const validate = require("../middleware/validate");
 
 const router = express.Router();
 
-// Every route in this file requires a valid JWT.
+// every post route requires a logged-in user
 router.use(protect);
 
-// GET /api/posts?page=1&limit=10
-router.get('/', getPosts);
+router.get("/", getFeed);
 
-// POST /api/posts
 router.post(
-  '/',
-  [body('text').trim().notEmpty().withMessage('Post text is required')],
+  "/",
+  [body("content").trim().notEmpty().withMessage("Post content is required")],
   validate,
   createPost
 );
 
-// PUT /api/posts/:id/like
-router.put('/:id/like', toggleLike);
+router.put("/:id/like", toggleLike);
 
-// POST /api/posts/:id/comments
 router.post(
-  '/:id/comments',
-  [body('text').trim().notEmpty().withMessage('Comment text is required')],
+  "/:id/comments",
+  [body("text").trim().notEmpty().withMessage("Comment text is required")],
   validate,
   addComment
 );
 
-// DELETE /api/posts/:id
-router.delete('/:id', deletePost);
+router.delete("/:id", deletePost);
 
 module.exports = router;
