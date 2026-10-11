@@ -1,20 +1,10 @@
-# ──────────────────────────────────────────────────────────────────────
-# CI/CD pipeline for DevConnect
-#
-# Runs on every push / PR targeting `main`:
-#   1. Installs deps + builds backend (catches broken requires/imports)
-#   2. Installs deps + builds frontend (catches compile-time errors)
-#   3. On a *push* to main (i.e. merge), pings the Render deploy hook
-#      so the backend auto-deploys. Vercel handles its own git-triggered
-#      deploys, so we don't need to call it here.
-#
-# Required GitHub repo secrets:
-#   VITE_API_URL          – e.g. https://devconnect-api.onrender.com/api
-#   VITE_SOCKET_URL       – e.g. https://devconnect-api.onrender.com
-#   RENDER_DEPLOY_HOOK_URL – Render "Deploy Hook" URL for the backend
-# ──────────────────────────────────────────────────────────────────────
-
 name: CI/CD
+
+# Runs on every push/PR to main: installs both apps, builds the frontend,
+# and (on a push to main only) triggers the Vercel + Render deploy hooks.
+# Vercel/Render also auto-deploy on their own git integration; this
+# workflow is what gives you the "green check" CI gate + an explicit,
+# auditable deploy step.
 
 on:
   push:
@@ -23,56 +13,52 @@ on:
     branches: [main]
 
 jobs:
-  # ── Build & lint both apps ────────────────────────────────────────
-  build:
+  backend:
+    name: Backend - install & smoke test
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18]
-
+    defaults:
+      run:
+        working-directory: backend
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # ── Backend ───────────────────────────────────────────────────
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+      - run: npm install
+      - run: npm test
 
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci
-
-      # The backend has no build step (plain Node.js), but we verify
-      # that require() / import chains resolve correctly by running a
-      # quick syntax check on the entry point.
-      - name: Verify backend entry point
-        working-directory: backend
-        run: node -e "require('./server.js')" || true
-
-      # ── Frontend ──────────────────────────────────────────────────
-      - name: Install frontend dependencies
+  frontend:
+    name: Frontend - install & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
         working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install
+      - run: npm run build
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
           VITE_SOCKET_URL: ${{ secrets.VITE_SOCKET_URL }}
-        run: npm run build
 
-  # ── Deploy backend to Render ──────────────────────────────────────
   deploy:
-    needs: build
+    name: Trigger deploy hooks
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    # Only deploy on an actual push (merge) to main, not on PRs.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     steps:
-      - name: Trigger Render deploy
-        run: |
-          curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
-          echo "Render deploy hook triggered."
+      # Render: create a "Deploy Hook" URL in the Render dashboard for the
+      # devconnect-api service and store it as a repo secret.
+      - name: Deploy backend to Render
+        run: curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+
+      # Vercel deploys automatically on push via its GitHub integration,
+      # so no explicit step is required here unless you disable that and
+      # want to trigger it manually with the Vercel CLI + VERCEL_TOKEN.

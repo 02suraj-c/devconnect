@@ -1,87 +1,64 @@
-/**
- * Auth Context
- *
- * Provides authentication state and actions (login, register, logout)
- * to the entire component tree via React Context.
- *
- * Session persistence strategy:
- *   1. On login/register, the JWT is stored in localStorage.
- *   2. On app load, the context reads the stored token and calls
- *      `GET /api/auth/me` to re-validate it (the token might be
- *      expired or the user might have been deleted).
- *   3. If validation fails, the token is cleared and the user is
- *      treated as logged out.
- *
- * A `loading` flag prevents the app from rendering the login page
- * while the re-validation request is in flight — without this guard,
- * returning users would see a brief flash of the login form.
- */
-
-import { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import { createContext, useContext, useEffect, useState } from "react";
+import api from "../services/api";
+import { disconnectSocket } from "../services/socket";
 
 const AuthContext = createContext(null);
 
+/**
+ * Holds the logged-in user + JWT in memory (mirrored to localStorage so a
+ * page refresh doesn't log the user out). Wraps register/login/logout so
+ * every page can call useAuth() instead of duplicating token handling.
+ */
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null);
-  const [loading, setLoading] = useState(true); // true until initial check completes
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem("devconnect_user");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [loading, setLoading] = useState(true);
 
-  // ── Re-validate the stored token on mount ────────────────────────
+  // On first load, verify the stored token is still valid by asking /auth/me.
   useEffect(() => {
-    const token = localStorage.getItem('dc_token');
-
+    const token = localStorage.getItem("devconnect_token");
     if (!token) {
       setLoading(false);
       return;
     }
-
     api
-      .get('/auth/me')
-      .then((res) => setUser(res.data.user))
-      .catch(() => {
-        // Token invalid or expired — clear it.
-        localStorage.removeItem('dc_token');
-      })
+      .get("/auth/me")
+      .then(({ data }) => setUser(data.user))
+      .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Register ─────────────────────────────────────────────────────
+  const persistSession = (token, userData) => {
+    localStorage.setItem("devconnect_token", token);
+    localStorage.setItem("devconnect_user", JSON.stringify(userData));
+    setUser(userData);
+  };
+
   const register = async (name, email, password) => {
-    const res = await api.post('/auth/register', { name, email, password });
-    localStorage.setItem('dc_token', res.data.token);
-    setUser(res.data.user);
-    return res.data;
+    const { data } = await api.post("/auth/register", { name, email, password });
+    persistSession(data.token, data.user);
   };
 
-  // ── Login ────────────────────────────────────────────────────────
   const login = async (email, password) => {
-    const res = await api.post('/auth/login', { email, password });
-    localStorage.setItem('dc_token', res.data.token);
-    setUser(res.data.user);
-    return res.data;
+    const { data } = await api.post("/auth/login", { email, password });
+    persistSession(data.token, data.user);
   };
 
-  // ── Logout ───────────────────────────────────────────────────────
   const logout = () => {
-    localStorage.removeItem('dc_token');
+    localStorage.removeItem("devconnect_token");
+    localStorage.removeItem("devconnect_user");
+    disconnectSocket();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, setUser }}>
+    <AuthContext.Provider value={{ user, setUser, loading, register, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-/**
- * Custom hook for consuming the auth context.
- * Throws if used outside of <AuthProvider>.
- */
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
+// Convenience hook so components do `const { user } = useAuth()`.
+export const useAuth = () => useContext(AuthContext);

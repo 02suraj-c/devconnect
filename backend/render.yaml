@@ -1,38 +1,24 @@
-# ──────────────────────────────────────────────────────────────────────
-# Render Blueprint for DevConnect Backend
-#
-# Render reads this file when you create a "Blueprint" and provisions
-# the service automatically. Secret env vars (MONGO_URI, JWT_SECRET)
-# should be set in the Render dashboard — they're listed here as
-# placeholders so Render knows to prompt for them.
-# ──────────────────────────────────────────────────────────────────────
-
+# Render "Blueprint" — commit this at the repo root (or backend/ if it's
+# a separate repo) and use "New + > Blueprint" on Render to auto-provision.
 services:
   - type: web
     name: devconnect-api
-    runtime: node
-    region: oregon
-
-    # Render clones the whole repo; rootDir scopes it to the backend.
+    env: node
+    plan: free
     rootDir: backend
-
-    buildCommand: npm install --include=dev
+    buildCommand: npm install
     startCommand: npm start
-
-    # Render hits this path to decide if the deploy is healthy.
     healthCheckPath: /api/health
-
     envVars:
       - key: NODE_ENV
         value: production
-
-      # Comma-separated frontend origins for CORS.
-      # Update this to your real Vercel URL once you have it.
-      - key: CLIENT_URL
-        value: https://devconnect-n8x9p2niw-02suraj-cs-projects.vercel.app
-
-      # Secrets — set the actual values in the Render dashboard.
+      - key: PORT
+        value: 5000
       - key: MONGO_URI
-        sync: false          # tells Render to prompt for the value
+        sync: false # set manually in the Render dashboard (secret)
       - key: JWT_SECRET
-        sync: false
+        sync: false # set manually in the Render dashboard (secret)
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_URL
+        value: https://devconnect.vercel.app # replace with your real Vercel URL

@@ -1,48 +1,25 @@
-/**
- * Axios API Instance
- *
- * A pre-configured Axios instance that:
- *   1. Sets the base URL from the VITE_API_URL env var (falls back to
- *      /api for the Vite dev proxy).
- *   2. Attaches the JWT from localStorage to every outgoing request
- *      via a request interceptor — controllers never need to manually
- *      add the Authorization header.
- *   3. Catches 401 responses in a response interceptor: if the backend
- *      says "not authorised", the stored token is stale, so we clear
- *      it and redirect to /login. This handles token expiry gracefully.
- */
+import axios from "axios";
 
-import axios from 'axios';
-
+// Single axios instance shared by the whole app.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
 });
 
-// ── Request interceptor: attach JWT ────────────────────────────────
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('dc_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// Attach the JWT (if we have one) to every outgoing request.
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("devconnect_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
-// ── Response interceptor: handle 401 (token expired / invalid) ─────
+// If the backend ever says our token is invalid/expired, log the user out
+// client-side so they aren't stuck seeing broken data.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('dc_token');
-      // Only redirect if we're not already on the login page.
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
+      localStorage.removeItem("devconnect_token");
+      localStorage.removeItem("devconnect_user");
     }
     return Promise.reject(error);
   }
